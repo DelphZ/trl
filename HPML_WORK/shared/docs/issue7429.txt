@@ -1,0 +1,170 @@
+Perf Issue: Colocated vLLM sleeps and reloads weights between the tool turns of one rollout
+ #7428
+Open
+Feature
+#7429
+Open
+Perf Issue: Colocated vLLM sleeps and reloads weights between the tool turns of one rollout
+#7428
+Feature
+#7429
+Description
+@ingambe
+ingambe
+opened on Sep 28
+Contributor
+Reproduction
+With colocated vLLM and sleep enabled, every generation call inside one GRPO rollout (i.e., agentic loops) synchronizes the weights and then sleeps. In a multi-turn rollout (tool calls, or a custom rollout_func), the turns are separated only by CPU work, with no optimizer step in between. Level-2 sleep discards the weights, so each turn reloads the same policy. Same for DistillationTrainer.
+
+Trainer flow:
+GRPOTrainer._generate() generates the first turn, then enters _tool_call_loop().
+_tool_call_loop() repeats while tool calls remain. It executes the tools, appends their results, and calls _generate_single_turn() again.
+_generate_single_turn() checks the training step, then calls VLLMGeneration.generate(). Inside that method, sleeping weights trigger synchronization, and each completed call sleeps again.
+Pseudocode:
+
+# GRPOTrainer._generate(): first completion, then the tool loop.
+completion = _generate_single_turn(prompt_ids)
+# That first call already ended with level-2 sleep: weights are discarded.
+
+# GRPOTrainer._tool_call_loop(): the policy is unchanged throughout this loop.
+while idxs_with_tool and iteration_num < self.max_tool_calling_iterations:
+    execute_cpu_tools_and_append_results()
+    # No GPU consumer needed the memory released after the previous turn.
+
+    # _generate_single_turn() -> VLLMGeneration.generate(), expanded here:
+    if self.mode == "colocate" and self.enable_sleep_mode and self._llm_weights_sleeping:
+        self.sync_weights()  # Reload identical weights discarded by the previous turn.
+    self.llm.wake_up(tags=["kv_cache"])
+    completion = self.llm.generate(...)
+
+    if self.enable_sleep_mode:
+        self.llm.sleep(level=2)            # Discard weights before the NEXT turn.
+        self._llm_weights_sleeping = True  # Forces that next turn to reload them.
+
+    update_pending_tool_calls(completion)
+    iteration_num += 1
+
+# Only after rollout completion does training need the GPU memory.
+The sleep is not needed for tool calls that run between turns, it makes the next turn reload the weights. A tool that needs GPU memory is the exception; such a rollout can release vLLM explicitly before running it, without a config flag.
+
+Reproduction
+import tempfile
+from unittest.mock import patch
+
+from datasets import Dataset
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
+from trl import GRPOConfig, GRPOTrainer
+from trl.generation.vllm_generation import VLLMGeneration
+
+config = LlamaConfig(vocab_size=32, hidden_size=16, intermediate_size=32, num_hidden_layers=1, num_attention_heads=2)
+tokenizer = PreTrainedTokenizerFast(
+    tokenizer_object=Tokenizer(WordLevel({"<pad>": 0, "<eos>": 1, "a": 2}, unk_token="a")),
+    pad_token="<pad>",
+    eos_token="<eos>",
+)
+
+
+def rollout_func(prompts, trainer):
+    for _ in range(2):  # First turn, then the turn after a CPU tool call.
+        trainer.vllm_generation.generate([[2]], images=None, num_generations=1)
+    print("sleeps between turns:", llm.sleep.call_count)
+    raise StopIteration  # Scoring the completions is irrelevant here.
+
+
+# vLLM itself is not needed: `vllm.LLM` is replaced by a mock that records sleeps.
+with (
+    patch("trl.generation.vllm_generation.is_vllm_available", return_value=True),
+    patch("trl.generation.vllm_generation.LLM", create=True) as LLM,
+    patch("trl.generation.vllm_generation.SamplingParams", create=True),
+    patch("trl.generation.vllm_generation.empty_cache"),
+    patch.object(VLLMGeneration, "sync_weights", autospec=True, side_effect=VLLMGeneration.sync_weights) as sync,
+):
+    llm = LLM.return_value
+    llm.generate.return_value = []
+    trainer = GRPOTrainer(
+        model=LlamaForCausalLM(config),
+        processing_class=tokenizer,
+        reward_funcs=lambda completions, **kwargs: [0.0] * len(completions),
+        args=GRPOConfig(
+            output_dir=tempfile.mkdtemp(),
+            use_cpu=True,
+            use_vllm=True,
+            vllm_mode="colocate",
+            vllm_enable_sleep_mode=True,
+            per_device_train_batch_size=2,
+            num_generations=2,
+            report_to="none",
+        ),
+        train_dataset=Dataset.from_dict({"prompt": ["a", "a"]}),
+        rollout_func=rollout_func,
+    )
+    llm.reset_mock()  # Ignore the sleep that ends engine construction.
+    sync.reset_mock()
+    try:
+        trainer._generate_and_score_completions([{"prompt": "a"}, {"prompt": "a"}])
+    except StopIteration:
+        pass
+
+print("weight syncs:", sync.call_count)
+Observed:
+
+sleeps between turns: 2
+weight syncs: 2
+Expected:
+
+sleeps between turns: 0
+weight syncs: 1
+Checklist
+
+Searched existing fork and relevant upstream issues; related reports are linked where applicable.
+
+Included system information.
+
+Included a complete, minimal reproduction and exact observed output.
+
+Code is provided in copyable code blocks.
+
+Traceback requirement reviewed; no unhandled traceback in this reproduction.
+System Info
+Platform: Linux-6.18.44-fc-v37-x86_64-with-glibc2.39
+Python version: 3.12.3
+TRL version: 1.15.0.dev0
+PyTorch version: 2.14.0
+accelerator(s): cpu
+Transformers version: 5.17.0
+Accelerate version: 1.15.0
+Accelerate config: not found
+Datasets version: 5.0.1
+HF Hub version: 1.33.0
+bitsandbytes version: not installed
+DeepSpeed version: not installed
+Liger-Kernel version: not installed
+PEFT version: 0.21.0
+vLLM version: not installed
+Checklist
+
+I have checked that my issue isn't already filed (see open issues)
+
+I have included my system information
+
+Any code provided is minimal, complete, and reproducible (more on MREs)
+
+Any code provided is properly formatted in code blocks, (no screenshot, more on code blocks)
+
+Any traceback provided is complete
+Activity
+
+ingambe
+changed the title [-]Perf Issue: Colocated vLLM sleeps and reloads weights between the turns of one rollout[/-] [+]Perf Issue: Colocated vLLM sleeps and reloads weights between the tool turns of one rollout[/+] on Sep 28
+
+ingambe
+linked a pull request that will close this issue on Sep 28
+Keep colocated vLLM awake across the generations of one rollout #7429
+
+qgallouedec
+added the
+Feature
+issue type 3w ago
+Add a comment

@@ -1,0 +1,3 @@
+# Linux CUDA environment only. Install in a clean environment with a compatible NVIDIA driver.
+-e .[peft,vllm]
+matplotlib>=3.9
