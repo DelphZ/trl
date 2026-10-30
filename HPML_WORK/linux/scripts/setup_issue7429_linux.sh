@@ -4,7 +4,27 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
-python3 -m venv .venv-issue7429
+python_cmd="${PYTHON:-}"
+if [ -z "$python_cmd" ]; then
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+        if command -v "$candidate" >/dev/null 2>&1 && \
+            "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+            python_cmd="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$python_cmd" ] || ! command -v "$python_cmd" >/dev/null 2>&1; then
+    echo "Python 3.11 or newer is required. Load a compatible Python module or set PYTHON=/path/to/python3.11." >&2
+    exit 1
+fi
+if ! "$python_cmd" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+    echo "Python 3.11 or newer is required; '$python_cmd' is too old." >&2
+    exit 1
+fi
+
+"$python_cmd" -m venv --clear .venv-issue7429
 source .venv-issue7429/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r HPML_WORK/linux/requirements.txt

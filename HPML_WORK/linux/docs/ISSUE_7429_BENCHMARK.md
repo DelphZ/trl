@@ -6,14 +6,20 @@ The upstream issue's minimal logical reproduction uses CPU and a mocked vLLM; th
 
 ## Setup and model download
 
-From the repository root on Linux x86-64 with a supported NVIDIA driver:
+From the repository root on Linux x86-64 with Python 3.11 or newer and a supported NVIDIA driver:
 
 ```bash
 bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
 source .venv-issue7429/bin/activate
 ```
 
-The setup creates a virtual environment, installs this checkout with its PEFT/vLLM extras plus plotting dependencies, verifies CUDA/vLLM, and downloads the pinned Qwen3-0.6B snapshot into the repository-relative `models/Qwen3-0.6B` directory. To download separately:
+The setup selects the newest available Python from 3.11–3.14 (or a compatible `python3`) and creates a clean virtual environment, then installs this checkout with its PEFT/vLLM extras plus plotting dependencies, verifies CUDA/vLLM, and downloads the pinned Qwen3-0.6B snapshot into the repository-relative `models/Qwen3-0.6B` directory. If Python is provided through a cluster module or is not discoverable under those names, set `PYTHON` to its executable path:
+
+```bash
+PYTHON=/path/to/python3.11 bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+```
+
+To download separately:
 
 ```bash
 python HPML_WORK/shared/scripts/download_qwen3.py
