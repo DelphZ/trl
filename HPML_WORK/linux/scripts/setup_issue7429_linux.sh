@@ -4,9 +4,26 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "nvidia-smi was not found. Run setup on a GPU compute node with NVIDIA drivers available." >&2
+    exit 1
+fi
+
 python_cmd="${PYTHON:-}"
 if [ -z "$python_cmd" ]; then
-    for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1 && \
+            "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+            python_cmd="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$python_cmd" ] && command -v module >/dev/null 2>&1; then
+    echo "No Python 3.11+ found on PATH; loading the Insomnia Anaconda module."
+    module load anaconda/2023.09
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
         if command -v "$candidate" >/dev/null 2>&1 && \
             "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
             python_cmd="$candidate"
@@ -21,11 +38,6 @@ if [ -z "$python_cmd" ] || ! command -v "$python_cmd" >/dev/null 2>&1; then
 fi
 if ! "$python_cmd" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
     echo "Python 3.11 or newer is required; '$python_cmd' is too old." >&2
-    exit 1
-fi
-
-if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "nvidia-smi was not found. Run setup on a GPU compute node with NVIDIA drivers available." >&2
     exit 1
 fi
 

@@ -4,35 +4,33 @@ GitHub #7428 reports redundant weight synchronization between multi-turn generat
 
 The upstream issue's minimal logical reproduction uses CPU and a mocked vLLM; that is the upstream author's unit-test-style reproduction, not this project's experiment. Our Insomnia workflow requires a GPU: Qwen3 inference, the vLLM benchmark, and GRPO model forward/backward training all run on CUDA, and both Python programs fail if their trainer is not assigned to a CUDA device. CPU work is limited to host orchestration, reward calculation, and the toy calculator/tool-result simulation between GPU generation turns; no model training or generation falls back to CPU. The Linux benchmark requires real vLLM and the proposal's Qwen3-0.6B model, and measures synchronization/sleep counts, sync/turn/rollout latency, and peak GPU memory. The native-Windows emulation and visualization steps are in the [Windows benchmark guide](../../windows/docs/ISSUE_7429_BENCHMARK.md).
 
-## Setup and model download
+## Run interactively on Insomnia
 
-From the repository root on Linux x86-64 with a supported NVIDIA driver, load the cluster's Anaconda module and create a persistent Python 3.12 environment. The setup script uses that interpreter to create its package virtual environment:
+Use an interactive Slurm allocation and run the benchmark in that allocation. There is no need to submit a second `sbatch` job for the benchmark. Request the compute node first from the login node:
 
 ```bash
+srun -A edu --partition=short --gres=gpu:1 --cpus-per-task=4 --mem=16G --time=08:00:00 --pty /bin/bash
+```
+
+Once Slurm assigns a node, go to the repository root and prepare the environment and model. This setup script is intended to run on the allocated GPU node: it uses the node's driver to select matching CUDA 12.9 or CUDA 13.0 PyTorch, vLLM 0.32.0, and TorchCodec 0.16.0 wheels; installs the project dependencies into `.venv-issue7429`; verifies the GPU/library imports; and downloads Qwen3-0.6B.
+
+```bash
+cd ~/trl
 module load anaconda/2023.09
-conda create --prefix "$HOME/.conda/envs/trl-issue7429" python=3.12 -y
-PYTHON="$HOME/.conda/envs/trl-issue7429/bin/python" \
-  bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
 source .venv-issue7429/bin/activate
 ```
 
-The setup detects the CUDA version supported by the allocated node's NVIDIA driver and installs matching PyTorch, vLLM 0.32.0, and TorchCodec 0.16.0 builds for CUDA 12.9 or 13.0. It then installs this checkout with PEFT and plotting dependencies, verifies that PyTorch's CUDA build matches the driver and that TorchCodec/vLLM can import, and downloads the pinned Qwen3-0.6B snapshot into `models/Qwen3-0.6B`. Run setup on a GPU compute node; if using a different Conda prefix, set `PYTHON` to that environment's Python executable.
+The Anaconda module supplies the base Python interpreter (3.11 or newer); the setup script creates the project virtual environment and installs Python packages into it. You do not need to create a separate Conda environment. A virtual environment uses its base Python interpreter rather than bundling another Python installation. If you already have a compatible Python 3.11+ active, the setup script can use that instead.
 
-```bash
-PYTHON=/path/to/conda/env/bin/python bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
-```
+The venv and downloaded model live in your repository under shared storage, so they normally persist when you request a different compute node. Activate the venv and confirm CUDA access on each allocation. If the new node has a different CUDA driver version, rerun setup there to rebuild the venv with matching wheels.
 
-To download separately:
-
-```bash
-python HPML_WORK/shared/scripts/download_qwen3.py
-```
-
-## Run
+## Run the benchmark
 
 This script measures **only the checked-out TRL source**; it does not switch between or emulate the affected and fixed implementations. Run it once in the affected baseline checkout and once in the checkout containing the fix. Each run's JSON records the observed sync/sleep counts and source commit.
 
 ```bash
+source .venv-issue7429/bin/activate
 python HPML_WORK/linux/scripts/issue7429_live_benchmark.py \
   --label baseline \
   --turns 2 \
@@ -53,56 +51,21 @@ For two turns, the expected observations from the **two separate source revision
 
 The table is not two policies exercised by one benchmark invocation: each row comes from running the same script against a different checkout. Zero sleeps **inside** the fixed rollout does not mean sleep mode was disabled; the engine sleeps once after the complete rollout, before scoring/training needs its GPU memory. `behavior` in each JSON should be `buggy` for the affected checkout and `fixed` for the fixed checkout; `source_commit` identifies exactly what was measured. The harness stops at the pre-scoring boundary so the issue-specific measurement isolates inter-turn behavior and skips an optimizer step. For end-to-end project metrics, plug in the shared chain-arithmetic dataset/environment and record accuracy/reward as well.
 
-## Submit a full training and benchmark job to Columbia Insomnia
+## Run the optional GRPO training workload
 
-The Slurm job runs two phases on one allocated GPU:
-
-1. The real colocated-vLLM issue benchmark above, saving a JSON report that the existing visualizer can read.
-2. A configurable Qwen3-0.6B LoRA/GRPO training run on a small synthetic arithmetic dataset, saving the final adapter and separate training timing/memory metrics.
-
-The training run is GPU LoRA/GRPO training on the allocated Insomnia GPU, not CPU training. It is a runnable integration workload, not the project's final multi-turn calculator/GSM8K experiment. It currently trains for 10 optimizer steps by default; adjust the workload after the team dataset and environment are ready.
-
-Log in to Insomnia using the Columbia-provided hostname and your UNI, then go to the repository root. Prepare the environment/model once in a cluster allocation where CUDA is visible to PyTorch (the setup script verifies GPU availability). The batch script loads `anaconda/2023.09` and activates `$HOME/.conda/envs/trl-issue7429` before activating the package virtual environment. Create the Conda environment once, then run setup:
+The issue benchmark above measures generation behavior and does not perform an optimizer step. To run the separate GPU LoRA/GRPO integration workload within the same interactive allocation:
 
 ```bash
-module load anaconda/2023.09
-conda create --prefix "$HOME/.conda/envs/trl-issue7429" python=3.12 -y
-PYTHON="$HOME/.conda/envs/trl-issue7429/bin/python" \
-  bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+python HPML_WORK/linux/scripts/train_grpo_benchmark.py \
+  --model models/Qwen3-0.6B \
+  --max-steps 10 \
+  --dtype bfloat16 \
+  --vllm-gpu-memory-utilization 0.3 \
+  --output-dir HPML_WORK/linux/results/interactive-training \
+  --metrics-output HPML_WORK/linux/results/interactive-training.json
 ```
 
-Inspect the cluster's current GPU partitions and constraints, then adjust the `#SBATCH` account, partition, GPU, memory, and time directives in [`insomnia_grpo_benchmark.sbatch`](../scripts/insomnia_grpo_benchmark.sbatch) if required. Submit from the repository root so Slurm can create its log files in the existing results directory:
-
-```bash
-sbatch HPML_WORK/linux/scripts/insomnia_grpo_benchmark.sbatch
-squeue -u "$USER"
-```
-
-By default, the job writes:
-
-- `HPML_WORK/linux/results/insomnia-JOBID-benchmark.json` — issue-specific vLLM benchmark, directly consumable by the visualizer.
-- `HPML_WORK/linux/results/insomnia-JOBID-benchmark.png` — visualization generated from that JSON.
-- `HPML_WORK/linux/results/insomnia-JOBID-training.json` — training duration, step timings, loss, and peak memory.
-- `HPML_WORK/linux/results/insomnia-JOBID-training/final_adapter/` — trained LoRA adapter.
-- `HPML_WORK/linux/results/insomnia-JOBID.out` and `.err` — Slurm stdout/stderr.
-
-To compare baseline and fixed revisions, use two separate working trees/checkouts on Insomnia so a queued job cannot start after its branch has been changed. Install an environment in each checkout and download/share the model as appropriate. Submit one benchmark-only job from each checkout:
-
-```bash
-HPML_RUN_TRAINING=0 HPML_BENCHMARK_LABEL=baseline \
-  HPML_BENCHMARK_OUTPUT=HPML_WORK/linux/results/baseline.json \
-  HPML_BENCHMARK_PLOT_OUTPUT=HPML_WORK/linux/results/baseline.png \
-  sbatch --export=ALL HPML_WORK/linux/scripts/insomnia_grpo_benchmark.sbatch
-HPML_RUN_TRAINING=0 HPML_BENCHMARK_LABEL=fixed \
-  HPML_BENCHMARK_OUTPUT=HPML_WORK/linux/results/fixed.json \
-  HPML_BENCHMARK_PLOT_OUTPUT=HPML_WORK/linux/results/fixed.png \
-  sbatch --export=ALL HPML_WORK/linux/scripts/insomnia_grpo_benchmark.sbatch
-python HPML_WORK/shared/scripts/visualize_benchmark.py \
-  --input HPML_WORK/linux/results/baseline.json HPML_WORK/linux/results/fixed.json \
-  --output HPML_WORK/linux/results/insomnia-comparison.png
-```
-
-Optional job settings can be supplied as exported environment variables before `sbatch`: `HPML_VENV`, `HPML_MODEL`, `HPML_DTYPE`, `HPML_TURNS`, `HPML_BENCHMARK_ITERATIONS`, `HPML_RUN_TRAINING`, `HPML_TRAIN_STEPS`, `HPML_VLLM_GPU_MEMORY_UTILIZATION`, `HPML_BENCHMARK_LABEL`, `HPML_BENCHMARK_OUTPUT`, `HPML_BENCHMARK_PLOT_OUTPUT`, `HPML_TRAIN_OUTPUT_DIR`, and `HPML_TRAIN_METRICS_OUTPUT`. Slurm exports the submitting shell's environment with `--export=ALL`. Ensure the model, GPU allocation, and benchmark settings match; the source commit should differ only as intended.
+This is a short synthetic arithmetic workload, not the final multi-turn calculator/GSM8K experiment. Results are saved in the paths passed above.
 
 ## Visualize and compare
 
