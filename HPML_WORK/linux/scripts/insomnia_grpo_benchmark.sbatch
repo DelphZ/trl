@@ -14,6 +14,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
+module load anaconda/2023.09
+eval "$(conda shell.bash hook)"
+conda_env="${HPML_CONDA_ENV:-$HOME/.conda/envs/trl-issue7429}"
+if [[ ! -x "$conda_env/bin/python" ]]; then
+    echo "Conda environment not found: $conda_env" >&2
+    echo "Create it with: conda create --prefix \"$conda_env\" python=3.12 -y" >&2
+    exit 1
+fi
+conda activate "$conda_env"
+python -c 'import sys; assert sys.version_info >= (3, 11), f"Python 3.11 or newer is required, got {sys.version.split()[0]}"'
+
 venv="${HPML_VENV:-.venv-issue7429}"
 if [[ ! -f "$venv/bin/activate" ]]; then
     echo "Python virtual environment not found: $venv" >&2

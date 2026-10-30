@@ -6,17 +6,20 @@ The upstream issue's minimal logical reproduction uses CPU and a mocked vLLM; th
 
 ## Setup and model download
 
-From the repository root on Linux x86-64 with Python 3.11 or newer and a supported NVIDIA driver:
+From the repository root on Linux x86-64 with a supported NVIDIA driver, load the cluster's Anaconda module and create a persistent Python 3.12 environment. The setup script uses that interpreter to create its package virtual environment:
 
 ```bash
-bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+module load anaconda/2023.09
+conda create --prefix "$HOME/.conda/envs/trl-issue7429" python=3.12 -y
+PYTHON="$HOME/.conda/envs/trl-issue7429/bin/python" \
+  bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
 source .venv-issue7429/bin/activate
 ```
 
-The setup selects the newest available Python from 3.11–3.14 (or a compatible `python3`) and creates a clean virtual environment, then installs this checkout with its PEFT/vLLM extras plus plotting dependencies, verifies CUDA/vLLM, and downloads the pinned Qwen3-0.6B snapshot into the repository-relative `models/Qwen3-0.6B` directory. If Python is provided through a cluster module or is not discoverable under those names, set `PYTHON` to its executable path:
+The setup creates a clean virtual environment, installs this checkout with its PEFT/vLLM extras plus plotting dependencies, verifies CUDA/vLLM, and downloads the pinned Qwen3-0.6B snapshot into the repository-relative `models/Qwen3-0.6B` directory. If using a different Conda prefix, set `PYTHON` to that environment's Python executable.
 
 ```bash
-PYTHON=/path/to/python3.11 bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+PYTHON=/path/to/conda/env/bin/python bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
 ```
 
 To download separately:
@@ -59,10 +62,13 @@ The Slurm job runs two phases on one allocated GPU:
 
 The training run is GPU LoRA/GRPO training on the allocated Insomnia GPU, not CPU training. It is a runnable integration workload, not the project's final multi-turn calculator/GSM8K experiment. It currently trains for 10 optimizer steps by default; adjust the workload after the team dataset and environment are ready.
 
-Log in to Insomnia using the Columbia-provided hostname and your UNI, then go to the repository root. Prepare the environment/model once in a cluster allocation where CUDA is visible to PyTorch (the setup script verifies GPU availability):
+Log in to Insomnia using the Columbia-provided hostname and your UNI, then go to the repository root. Prepare the environment/model once in a cluster allocation where CUDA is visible to PyTorch (the setup script verifies GPU availability). The batch script loads `anaconda/2023.09` and activates `$HOME/.conda/envs/trl-issue7429` before activating the package virtual environment. Create the Conda environment once, then run setup:
 
 ```bash
-bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
+module load anaconda/2023.09
+conda create --prefix "$HOME/.conda/envs/trl-issue7429" python=3.12 -y
+PYTHON="$HOME/.conda/envs/trl-issue7429/bin/python" \
+  bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh
 ```
 
 Inspect the cluster's current GPU partitions and constraints, then adjust the `#SBATCH` account, partition, GPU, memory, and time directives in [`insomnia_grpo_benchmark.sbatch`](../scripts/insomnia_grpo_benchmark.sbatch) if required. Submit from the repository root so Slurm can create its log files in the existing results directory:
