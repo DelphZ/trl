@@ -16,7 +16,7 @@ PYTHON="$HOME/.conda/envs/trl-issue7429/bin/python" \
 source .venv-issue7429/bin/activate
 ```
 
-The setup creates a clean virtual environment, installs this checkout with its PEFT/vLLM extras plus plotting dependencies, verifies CUDA/vLLM, and downloads the pinned Qwen3-0.6B snapshot into the repository-relative `models/Qwen3-0.6B` directory. If using a different Conda prefix, set `PYTHON` to that environment's Python executable.
+The setup detects the CUDA version supported by the allocated node's NVIDIA driver and installs matching PyTorch and vLLM 0.32.0 builds for CUDA 12.9 or 13.0. It then installs this checkout with PEFT and plotting dependencies, verifies that PyTorch's CUDA build matches the driver and can access the GPU, and downloads the pinned Qwen3-0.6B snapshot into `models/Qwen3-0.6B`. Run setup on a GPU compute node; if using a different Conda prefix, set `PYTHON` to that environment's Python executable.
 
 ```bash
 PYTHON=/path/to/conda/env/bin/python bash HPML_WORK/linux/scripts/setup_issue7429_linux.sh

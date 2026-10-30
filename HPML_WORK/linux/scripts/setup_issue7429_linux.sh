@@ -24,10 +24,36 @@ if ! "$python_cmd" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) els
     exit 1
 fi
 
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "nvidia-smi was not found. Run setup on a GPU compute node with NVIDIA drivers available." >&2
+    exit 1
+fi
+
+cuda_version="$(nvidia-smi | sed -n 's/.*CUDA Version: \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)"
+case "$cuda_version" in
+    12.9)
+        torch_index="https://download.pytorch.org/whl/cu129"
+        vllm_wheel="https://github.com/vllm-project/vllm/releases/download/v0.32.0/vllm-0.32.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl"
+        ;;
+    13.0) ;;
+    *)
+        echo "Unsupported or undetected CUDA driver version: '${cuda_version:-unknown}'. Supported versions are 12.9 and 13.0." >&2
+        exit 1
+        ;;
+esac
+
 "$python_cmd" -m venv --clear .venv-issue7429
 source .venv-issue7429/bin/activate
 python -m pip install --upgrade pip
+if [ "$cuda_version" = "12.9" ]; then
+    echo "Installing PyTorch and vLLM for CUDA 12.9."
+    python -m pip install "torch==2.13.0" --index-url "$torch_index"
+    python -m pip install "$vllm_wheel" --extra-index-url "$torch_index"
+else
+    echo "Installing PyTorch and vLLM for CUDA 13.0."
+    python -m pip install "vllm==0.32.0"
+fi
 python -m pip install -r HPML_WORK/linux/requirements.txt
 
-python -c 'import torch; from trl.import_utils import is_vllm_available; assert torch.cuda.is_available(), "CUDA GPU is not visible to PyTorch"; assert is_vllm_available(), "vLLM failed to import"; print("GPU:", torch.cuda.get_device_name(0)); print("PyTorch:", torch.__version__); import vllm; print("vLLM:", vllm.__version__)'
+EXPECTED_CUDA_VERSION="$cuda_version" python -c 'import os, torch; from trl.import_utils import is_vllm_available; expected_cuda = os.environ["EXPECTED_CUDA_VERSION"]; assert torch.version.cuda and torch.version.cuda.startswith(expected_cuda), f"PyTorch CUDA {torch.version.cuda} does not match driver CUDA {expected_cuda}"; assert torch.cuda.is_available(), "CUDA GPU is not visible to PyTorch"; assert is_vllm_available(), "vLLM failed to import"; print("GPU:", torch.cuda.get_device_name(0)); print("PyTorch:", torch.__version__); print("PyTorch CUDA:", torch.version.cuda); import vllm; print("vLLM:", vllm.__version__)'
 python HPML_WORK/shared/scripts/download_qwen3.py --local-dir models/Qwen3-0.6B
