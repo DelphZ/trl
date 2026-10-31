@@ -18,6 +18,20 @@ def _read_report(path):
     with path.open(encoding="utf-8-sig") as file:
         report = json.load(file)
 
+    if "training" in report:
+        training = report["training"]
+        return report, [
+            {
+                "label": report.get("label") or Path(report.get("output_dir", path.stem)).name,
+                "duration_ms": training["duration_ms"],
+                "median_step_ms": training["median_step_ms"],
+                "step_times_ms": training["step_times_ms"],
+                "peak_allocated_gib": training["peak_allocated_gib"],
+                "peak_reserved_gib": training["peak_reserved_gib"],
+                "train_loss": training["train_loss"],
+            }
+        ]
+
     policies = []
     if "policies" in report:
         for policy, runs in report["policies"].items():
@@ -47,14 +61,77 @@ def _read_report(path):
     return report, policies
 
 
+def _plot_training_reports(reports, runs, output):
+    labels = [run["label"] for run in runs]
+    colors = plt.get_cmap("Set2")(np.linspace(0, 1, len(runs)))
+    figure, axes = plt.subplots(2, 3, figsize=(16, 9))
+    figure.suptitle(
+        f"GRPO training benchmark\n{reports[0].get('gpu', 'GPU not recorded')}",
+        fontsize=15,
+        fontweight="bold",
+    )
+
+    metrics = [
+        ("duration_ms", "Total training time", "minutes", 1 / 60000),
+        ("median_step_ms", "Median training step time", "seconds", 1 / 1000),
+        ("train_loss", "Training loss", "loss", 1),
+    ]
+    for axis, (key, title, unit, scale) in zip((axes[0, 0], axes[0, 1], axes[1, 1]), metrics, strict=True):
+        values = [run[key] * scale if run[key] is not None else np.nan for run in runs]
+        bars = axis.bar(labels, values, color=colors)
+        axis.set_title(title)
+        axis.set_ylabel(unit)
+        axis.tick_params(axis="x", labelrotation=25)
+        axis.bar_label(bars, fmt="%.3f")
+        axis.grid(axis="y", alpha=0.25)
+        axis.margins(y=0.15)
+
+    x_positions = np.arange(len(runs))
+    width = 0.8 / len(runs)
+    for offset, (key, label) in enumerate(
+        (("peak_allocated_gib", "Allocated"), ("peak_reserved_gib", "Reserved"))
+    ):
+        values = [run[key] for run in runs]
+        axes[0, 2].bar(
+            x_positions + (offset - 0.5) * width,
+            values,
+            width,
+            label=label,
+            color=plt.get_cmap("Set2")(offset),
+        )
+    axes[0, 2].set_title("Peak GPU memory")
+    axes[0, 2].set_ylabel("GiB")
+    axes[0, 2].set_xticks(x_positions, labels, rotation=25)
+    axes[0, 2].legend(fontsize=8)
+    axes[0, 2].grid(axis="y", alpha=0.25)
+
+    for index, run in enumerate(runs):
+        axes[1, 0].plot(
+            np.arange(1, len(run["step_times_ms"]) + 1),
+            np.asarray(run["step_times_ms"]) / 1000,
+            marker="o",
+            label=run["label"],
+            color=colors[index],
+        )
+    axes[1, 0].set_title("Training time by step")
+    axes[1, 0].set_xlabel("Training step")
+    axes[1, 0].set_ylabel("seconds")
+    axes[1, 0].legend(fontsize=8)
+    axes[1, 0].grid(alpha=0.25)
+    axes[1, 2].set_visible(False)
+
+    figure.tight_layout(rect=(0, 0, 1, 0.92))
+    figure.savefig(output, dpi=160)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Plot benchmark JSON results for the #7428 weight reload study.")
+    parser = argparse.ArgumentParser(description="Plot rollout or GRPO training benchmark JSON results.")
     parser.add_argument(
         "--input",
         type=Path,
         nargs="+",
         default=[DEFAULT_INPUT],
-        help="One or more benchmark JSON files. Multiple Linux files enable baseline/fix comparison.",
+        help="One or more rollout reports or GRPO training reports of the same type.",
     )
     parser.add_argument(
         "--output",
@@ -72,6 +149,21 @@ def main():
     if not policies:
         raise ValueError("No benchmark policies found in input JSON.")
 
+    is_training = ["training" in report for report in reports]
+    if any(is_training) and not all(is_training):
+        raise ValueError("Use separate visualization commands for rollout reports and GRPO training reports.")
+
+    output = args.output or args.input[0].with_name(f"{args.input[0].stem}_visualization.png")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if all(is_training):
+        _plot_training_reports(reports, policies, output)
+        try:
+            output_label = output.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            output_label = str(output)
+        print(f"Saved benchmark visualization: {output_label}")
+        return
+
     for policy in policies:
         if policy["label"] == "affected reload each turn":
             policy["label"] = "Affected\n(reload per turn)"
@@ -80,8 +172,6 @@ def main():
 
     labels = [policy["label"] for policy in policies]
     colors = plt.get_cmap("Set2")(np.linspace(0, 1, len(policies)))
-    output = args.output or args.input[0].with_name(f"{args.input[0].stem}_visualization.png")
-    output.parent.mkdir(parents=True, exist_ok=True)
 
     figure, axes = plt.subplots(2, 2, figsize=(13, 9))
     figure.suptitle(

@@ -77,6 +77,9 @@ case "$run_training" in
             --vllm-gpu-memory-utilization "$memory_utilization" \
             --output-dir "$training_output_dir" \
             --metrics-output "$training_metrics"
+        python HPML_WORK/shared/scripts/visualize_benchmark.py \
+            --input "$training_metrics" \
+            --output "$training_output_dir/training-visualization.png"
         ;;
     0|false|FALSE|no|NO)
         echo "Skipping the GRPO training phase (HPML_RUN_TRAINING=$run_training)."

@@ -83,6 +83,16 @@ python HPML_WORK/linux/scripts/train_grpo_benchmark.py \
 
 This is a short synthetic arithmetic workload, not the final multi-turn calculator/GSM8K experiment. Results are saved in the paths passed above.
 
+Visualize its training metrics separately from the rollout benchmark:
+
+```bash
+python HPML_WORK/shared/scripts/visualize_benchmark.py \
+  --input HPML_WORK/linux/results/interactive-training.json \
+  --output HPML_WORK/linux/results/interactive-training.png
+```
+
+The training plot shows total training time, median step time, per-step times, peak allocated/reserved GPU memory, and final loss. Multiple training JSON files can be passed to `--input` to compare runs; use separate commands for training and rollout reports.
+
 ## Visualize and compare
 
 Save separate baseline and fixed JSON results using `--output`, then create one comparison plot:
