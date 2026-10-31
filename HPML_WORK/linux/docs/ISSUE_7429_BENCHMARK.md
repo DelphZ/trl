@@ -4,6 +4,21 @@ GitHub #7428 reports redundant weight synchronization between multi-turn generat
 
 The upstream issue's minimal logical reproduction uses CPU and a mocked vLLM; that is the upstream author's unit-test-style reproduction, not this project's experiment. Our Insomnia workflow requires a GPU: Qwen3 inference, the vLLM benchmark, and GRPO model forward/backward training all run on CUDA, and both Python programs fail if their trainer is not assigned to a CUDA device. CPU work is limited to host orchestration, reward calculation, and the toy calculator/tool-result simulation between GPU generation turns; no model training or generation falls back to CPU. The Linux benchmark requires real vLLM and the proposal's Qwen3-0.6B model, and measures synchronization/sleep counts, sync/turn/rollout latency, and peak GPU memory. The native-Windows emulation and visualization steps are in the [Windows benchmark guide](../../windows/docs/ISSUE_7429_BENCHMARK.md).
 
+## Prepare an owned Ubuntu GPU VM
+
+On an Ubuntu GPU VM where you have administrator access, install Git and Python before cloning the repository or running the setup script:
+
+```bash
+apt update
+apt install git -y
+apt install software-properties-common -y
+add-apt-repository ppa:deadsnakes/ppa -y
+apt update
+apt install python3.13 python3.13-full -y
+```
+
+These commands install Git and Python, not the NVIDIA driver. Confirm the VM's NVIDIA driver is installed and the GPU is visible with `nvidia-smi`; the Linux setup script currently supports driver-reported CUDA versions 12.9 and 13.0. Then clone or check out this repository, go to its root, and follow the setup and benchmark instructions below. The setup script detects Python 3.13 automatically and creates `.venv-issue7429`.
+
 ## Run interactively on Insomnia
 
 Use an interactive Slurm allocation and run the benchmark in that allocation. There is no need to submit a second `sbatch` job for the benchmark. Request the compute node first from the login node:
