@@ -17,7 +17,7 @@ apt update
 apt install python3.13 python3.13-full -y
 ```
 
-These commands install Git and Python, not the NVIDIA driver. Confirm the VM's NVIDIA driver is installed and the GPU is visible with `nvidia-smi`; the Linux setup script currently supports driver-reported CUDA versions 12.9 and 13.0. Then clone or check out this repository, go to its root, and follow the setup and benchmark instructions below. The setup script detects Python 3.13 automatically and creates `.venv-issue7429`.
+These commands install Git and Python, not the NVIDIA driver. Confirm the VM's NVIDIA driver is installed and the GPU is visible with `nvidia-smi`; the Linux setup script currently supports driver-reported CUDA versions 12.9 and 13.0. Then clone or check out this repository, go to its root, and follow the setup and benchmark instructions below. The setup script detects Python 3.13 automatically and creates `.venv-issue7429`. For Qwen3 download, it defaults to `https://hf-mirror.com`, which may be more reachable from mainland China. Set `HF_ENDPOINT` to another Hugging Face-compatible endpoint before running setup to override it.
 
 ## Run interactively on Insomnia
 
