@@ -4,6 +4,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
+export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+export PIP_DEFAULT_TIMEOUT=60
+
 if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "nvidia-smi was not found. Run setup on a GPU compute node with NVIDIA drivers available." >&2
     exit 1
