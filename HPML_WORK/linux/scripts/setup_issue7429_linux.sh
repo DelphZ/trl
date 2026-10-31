@@ -55,6 +55,19 @@ if ! "$python_cmd" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) els
     exit 1
 fi
 
+python_version="$("$python_cmd" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+python_include="$("$python_cmd" -c 'import sysconfig; print(sysconfig.get_path("include"))')"
+if [ ! -f "$python_include/Python.h" ]; then
+    if [ "$(id -u)" -eq 0 ] && command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y "python${python_version}-dev"
+    else
+        echo "Python development headers are required by Triton, but '$python_include/Python.h' was not found." >&2
+        echo "Install python${python_version}-dev on Ubuntu, or load a Python module that includes its development headers." >&2
+        exit 1
+    fi
+fi
+
 cuda_version="$(nvidia-smi | sed -n 's/.*CUDA Version: \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)"
 case "$cuda_version" in
     12.9)
