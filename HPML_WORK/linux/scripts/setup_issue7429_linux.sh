@@ -78,4 +78,5 @@ python -m pip install --force-reinstall --no-deps \
 
 EXPECTED_CUDA_VERSION="$cuda_version" python -c 'import os, torch, torchcodec, vllm; from trl.import_utils import is_vllm_available; expected_cuda = os.environ["EXPECTED_CUDA_VERSION"]; assert torch.version.cuda and torch.version.cuda.startswith(expected_cuda), f"PyTorch CUDA {torch.version.cuda} does not match driver CUDA {expected_cuda}"; assert torch.cuda.is_available(), "CUDA GPU is not visible to PyTorch"; assert is_vllm_available(), "vLLM failed to import"; print("GPU:", torch.cuda.get_device_name(0)); print("PyTorch:", torch.__version__); print("PyTorch CUDA:", torch.version.cuda); print("TorchCodec:", torchcodec.__version__); print("vLLM:", vllm.__version__)'
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export HF_HUB_DISABLE_XET=1
 python HPML_WORK/shared/scripts/download_qwen3.py --local-dir models/Qwen3-0.6B
