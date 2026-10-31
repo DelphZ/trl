@@ -12,12 +12,13 @@ On an Ubuntu GPU VM where you have administrator access, install Git and Python 
 apt update
 apt install git -y
 apt install software-properties-common -y
+apt install build-essential -y
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
 apt install python3.13 python3.13-full -y
 ```
 
-These commands install Git and Python, not the NVIDIA driver. Confirm the VM's NVIDIA driver is installed and the GPU is visible with `nvidia-smi`; the Linux setup script currently supports driver-reported CUDA versions 12.9 and 13.0. Then clone or check out this repository, go to its root, and follow the setup and benchmark instructions below. The setup script detects Python 3.13 automatically and creates `.venv-issue7429`. For Qwen3 download, it defaults to `https://hf-mirror.com`, which may be more reachable from mainland China, and disables the Xet transfer backend because the mirror may not authorize Xet CAS requests. Hugging Face Hub then downloads through its regular HTTP path. Set `HF_ENDPOINT` to another Hugging Face-compatible endpoint before running setup to override it.
+These commands install Git, a C/C++ toolchain required by Triton, and Python, not the NVIDIA driver. Confirm the VM's NVIDIA driver is installed and the GPU is visible with `nvidia-smi`; the Linux setup script currently supports driver-reported CUDA versions 12.9 and 13.0. Then clone or check out this repository, go to its root, and follow the setup and benchmark instructions below. The setup script detects Python 3.13 automatically and creates `.venv-issue7429`. If the C compiler is missing, the script installs `build-essential` when run as root; on a managed cluster, load a compiler module or set `CC` to an available compiler. For Qwen3 download, it defaults to `https://hf-mirror.com`, which may be more reachable from mainland China, and disables the Xet transfer backend because the mirror may not authorize Xet CAS requests. Hugging Face Hub then downloads through its regular HTTP path. Set `HF_ENDPOINT` to another Hugging Face-compatible endpoint before running setup to override it.
 
 ## Run interactively on Insomnia
 

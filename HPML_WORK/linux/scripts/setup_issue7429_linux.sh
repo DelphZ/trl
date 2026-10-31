@@ -12,6 +12,17 @@ if ! command -v nvidia-smi >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v "${CC:-cc}" >/dev/null 2>&1; then
+    if [ "$(id -u)" -eq 0 ] && command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y build-essential
+    else
+        echo "A C compiler is required by Triton but '${CC:-cc}' was not found." >&2
+        echo "Install build-essential on Ubuntu, load a compiler module, or set CC to an installed compiler." >&2
+        exit 1
+    fi
+fi
+
 python_cmd="${PYTHON:-}"
 if [ -z "$python_cmd" ]; then
     for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
